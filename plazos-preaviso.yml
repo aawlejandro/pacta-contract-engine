@@ -1,0 +1,146 @@
+# =============================================================================
+# PACTA Rules Engine — LAU Arts. 9 y 11: Plazos de preaviso
+# =============================================================================
+# Auditado por: [pendiente — se buscan revisores legales]
+# Última revisión: 2026-02
+# Normativa base: LAU 29/1994, modificada por Ley 12/2023
+# =============================================================================
+
+rule_id: "LAU_9_11_plazos_preaviso"
+version: "0.1.0"
+estado: "borrador"
+
+normativa:
+  ley_base: "LAU 29/1994"
+  articulos: ["9", "10", "11"]
+  descripcion: >
+    Art. 9: Plazo mínimo de duración (5 años persona física, 7 años persona jurídica).
+    Art. 10: Prórroga obligatoria y tácita.
+    Art. 11: Desistimiento del arrendatario.
+
+descripcion: >
+  Define los plazos de preaviso obligatorios para cada escenario de
+  finalización o no renovación del contrato, según quién notifica,
+  en qué fase está el contrato, y el tipo de arrendador.
+
+# -----------------------------------------------------------------------------
+# Escenarios de preaviso
+# -----------------------------------------------------------------------------
+escenarios:
+
+  arrendador_no_renueva_al_fin_del_plazo_minimo:
+    descripcion: "El arrendador no quiere renovar al finalizar el plazo mínimo"
+    normativa: "LAU Art. 9.3"
+    condicion: "contrato.estado == 'VIGENTE' AND dias_para_fin_plazo_minimo <= 120"
+    preaviso:
+      quien: "arrendador"
+      plazo_minimo_dias: 120  # 4 meses
+      forma: "notificacion_formal"
+      consecuencia_si_no_notifica: >
+        El contrato se prorroga obligatoriamente por anualidades completas
+        hasta el plazo mínimo (5 o 7 años según tipo de arrendador).
+
+  arrendatario_no_renueva_al_fin_del_plazo_minimo:
+    descripcion: "El arrendatario no quiere renovar al finalizar el plazo mínimo"
+    normativa: "LAU Art. 9.3"
+    condicion: "contrato.estado == 'VIGENTE' AND dias_para_fin_plazo_minimo <= 60"
+    preaviso:
+      quien: "arrendatario"
+      plazo_minimo_dias: 60  # 2 meses
+      forma: "notificacion_formal"
+      consecuencia_si_no_notifica: >
+        El contrato entra en prórroga tácita de 3 años (LAU Art. 10.2).
+
+  arrendador_no_renueva_prorroga_tacita:
+    descripcion: "El arrendador no quiere renovar durante la prórroga tácita"
+    normativa: "LAU Art. 10.2"
+    condicion: "contrato.estado == 'PRORROGA_TACITA'"
+    preaviso:
+      quien: "arrendador"
+      plazo_minimo_dias: 120  # 4 meses
+      forma: "notificacion_formal"
+
+  arrendatario_no_renueva_prorroga_tacita:
+    descripcion: "El arrendatario no quiere renovar durante la prórroga tácita"
+    normativa: "LAU Art. 10.2"
+    condicion: "contrato.estado == 'PRORROGA_TACITA'"
+    preaviso:
+      quien: "arrendatario"
+      plazo_minimo_dias: 60  # 2 meses
+      forma: "notificacion_formal"
+
+  arrendatario_desiste_antes_de_6_meses:
+    descripcion: "El arrendatario desiste dentro de los primeros 6 meses"
+    normativa: "LAU Art. 11"
+    condicion: >
+      contrato.estado == 'VIGENTE' AND
+      meses_desde_inicio >= 6
+    preaviso:
+      quien: "arrendatario"
+      plazo_minimo_dias: 30
+      forma: "notificacion_formal"
+      nota: >
+        El arrendatario solo puede desistir a partir del mes 6.
+        Antes del mes 6, el desistimiento puede generar obligación
+        de indemnización (no computable por este motor — consultar abogado).
+
+# -----------------------------------------------------------------------------
+# Plazos mínimos por tipo de arrendador
+# -----------------------------------------------------------------------------
+plazos_minimos_contrato:
+  persona_fisica:
+    normativa: "LAU Art. 9.1"
+    años: 5
+    descripcion: "Cuando el arrendador es persona física"
+
+  persona_juridica:
+    normativa: "LAU Art. 9.1"
+    años: 7
+    descripcion: "Cuando el arrendador es una empresa o sociedad"
+
+# -----------------------------------------------------------------------------
+# Casos de test de referencia
+# -----------------------------------------------------------------------------
+casos_test:
+  - id: "test_001"
+    descripcion: "Arrendatario puede desistir — contrato con más de 6 meses"
+    entrada:
+      meses_desde_inicio: 8
+      estado: "VIGENTE"
+      quien_notifica: "arrendatario"
+    salida_esperada:
+      puede_desistir: true
+      plazo_preaviso_dias: 30
+
+  - id: "test_002"
+    descripcion: "Arrendatario NO puede desistir — contrato con menos de 6 meses"
+    entrada:
+      meses_desde_inicio: 4
+      estado: "VIGENTE"
+      quien_notifica: "arrendatario"
+    salida_esperada:
+      puede_desistir: false
+      motivo: "LAU Art. 11 — mínimo 6 meses de vigencia"
+      accion_recomendada: "consultar_abogado"
+
+  - id: "test_003"
+    descripcion: "Arrendador no renueva al fin del plazo mínimo — dentro de plazo"
+    entrada:
+      estado: "VIGENTE"
+      dias_para_fin_plazo_minimo: 100
+      tipo_arrendador: "persona_fisica"
+    salida_esperada:
+      en_plazo_para_notificar: true
+      plazo_preaviso_dias: 120
+      fecha_limite_notificacion: "calculada_dinamicamente"
+
+  - id: "test_004"
+    descripcion: "Arrendador no renueva al fin del plazo mínimo — fuera de plazo"
+    entrada:
+      estado: "VIGENTE"
+      dias_para_fin_plazo_minimo: 30
+      tipo_arrendador: "persona_fisica"
+    salida_esperada:
+      en_plazo_para_notificar: false
+      consecuencia: "PRORROGA_OBLIGATORIA"
+      descripcion: "El contrato se prorrogará obligatoriamente"

@@ -1,0 +1,40 @@
+{
+  "name": "@pacta/contract-engine",
+  "version": "0.1.0",
+  "description": "Motor de reglas contractuales open source para arrendamientos de vivienda en España (LAU + Ley 12/2023)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/engine/evaluator.js",
+  "types": "./dist/engine/types.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint . --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0",
+    "@vitest/coverage-v8": "^1.4.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0"
+  },
+  "keywords": [
+    "spain",
+    "rental",
+    "tenancy",
+    "LAU",
+    "rules-engine",
+    "legal-tech",
+    "proptech",
+    "open-source"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aawlejandro/pacta-contract-engine"
+  }
+}

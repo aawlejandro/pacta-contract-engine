@@ -1,0 +1,161 @@
+# =============================================================================
+# PACTA Rules Engine — LAU Art. 18: Actualización de renta
+# =============================================================================
+# Auditado por: [pendiente — se buscan revisores legales]
+# Última revisión: 2026-02
+# Normativa base: LAU 29/1994, modificada por Ley 12/2023
+#
+# AVISO: Este archivo define reglas objetivamente computables.
+# No cubre situaciones que requieran interpretación jurídica.
+# =============================================================================
+
+rule_id: "LAU_18_actualizacion_renta"
+version: "0.1.0"
+estado: "borrador"  # borrador | revisado | validado
+
+normativa:
+  ley_base: "LAU 29/1994"
+  articulo: "18"
+  modificaciones:
+    - ley: "Ley 12/2023"
+      articulo: "17"
+      descripcion: >
+        Limita la actualización al 3% máximo en zonas tensionadas
+        y establece el IRAV como índice sustituto del IPC.
+
+descripcion: >
+  La renta solo puede actualizarse una vez al año, en la fecha del
+  aniversario del contrato. El índice aplicable depende de la fecha
+  de firma del contrato: IRAV para contratos posteriores al 31/12/2023,
+  IPC para contratos anteriores. En zona tensionada, el incremento
+  máximo es del 3% independientemente del índice.
+
+# -----------------------------------------------------------------------------
+# Condiciones necesarias para que esta regla sea aplicable
+# -----------------------------------------------------------------------------
+condiciones:
+  - id: "contrato_vigente"
+    descripcion: "El contrato está en estado VIGENTE o PRÓRROGA_OBLIGATORIA"
+    expresion: "contrato.estado IN ['VIGENTE', 'PRORROGA_OBLIGATORIA']"
+
+  - id: "es_aniversario"
+    descripcion: "Hoy es la fecha de aniversario del contrato (mismo día/mes)"
+    expresion: "fecha_actual.dia == contrato.fecha_inicio.dia AND fecha_actual.mes == contrato.fecha_inicio.mes"
+
+  - id: "no_actualizada_este_año"
+    descripcion: "No se ha aplicado actualización de renta en los últimos 12 meses"
+    expresion: "dias_desde_ultima_actualizacion >= 365"
+
+  - id: "preaviso_enviado"
+    descripcion: "El arrendador ha notificado al arrendatario con al menos 30 días de antelación"
+    expresion: "notificacion_actualizacion.dias_antes >= 30"
+
+# -----------------------------------------------------------------------------
+# Lógica de cálculo
+# -----------------------------------------------------------------------------
+calculo:
+  paso_1_determinar_indice:
+    descripcion: "Seleccionar índice según fecha del contrato"
+    logica:
+      - si: "contrato.fecha_firma >= '2024-01-01'"
+        entonces:
+          indice: "IRAV"
+          fuente: "https://www.ine.es/jaxiT3/Tabla.htm?t=59066"
+          descripcion: "Índice de Referencia del Alquiler de Vivienda (INE)"
+      - si: "contrato.fecha_firma < '2024-01-01'"
+        entonces:
+          indice: "IPC"
+          fuente: "https://www.ine.es/varipc/"
+          descripcion: "Índice de Precios de Consumo general (INE)"
+
+  paso_2_obtener_variacion:
+    descripcion: "Obtener variación anual del índice seleccionado"
+    fuente_datos: "INE API (datos_publicos/ine-irav.ts)"
+    periodo: "últimos 12 meses hasta el mes anterior al aniversario"
+    formato: "decimal (ej: 0.025 para 2.5%)"
+
+  paso_3_aplicar_limite_zona_tensionada:
+    descripcion: "Si el inmueble está en zona tensionada, limitar al 3%"
+    logica:
+      - si: "inmueble.zona_tensionada == true"
+        entonces:
+          variacion_aplicable: "MIN(variacion_indice, 0.03)"
+      - si: "inmueble.zona_tensionada == false"
+        entonces:
+          variacion_aplicable: "variacion_indice"
+
+  paso_4_calcular_nueva_renta:
+    formula: "nueva_renta = renta_actual * (1 + variacion_aplicable)"
+    redondeo: "2 decimales"
+
+# -----------------------------------------------------------------------------
+# Resultado
+# -----------------------------------------------------------------------------
+resultado:
+  campos:
+    - nombre: "nueva_renta"
+      tipo: "number"
+      descripcion: "Nueva renta mensual en euros"
+
+    - nombre: "variacion_aplicada"
+      tipo: "number"
+      descripcion: "Porcentaje aplicado (decimal, ej: 0.025)"
+
+    - nombre: "indice_usado"
+      tipo: "string"
+      valores: ["IRAV", "IPC"]
+
+    - nombre: "limitado_por_zona_tensionada"
+      tipo: "boolean"
+      descripcion: "true si se aplicó el límite del 3%"
+
+    - nombre: "fecha_efectiva"
+      tipo: "date"
+      descripcion: "Fecha desde la que aplica la nueva renta"
+
+  notificaciones:
+    - destinatario: "arrendatario"
+      plazo_minimo_dias: 30
+      contenido: "Nueva renta, índice aplicado, variación, fecha efectiva"
+      canal: "notificacion_formal"  # requiere acuse de recibo
+
+# -----------------------------------------------------------------------------
+# Casos de test de referencia
+# -----------------------------------------------------------------------------
+# Ver: tests/lau/actualizacion-renta.test.ts
+casos_test:
+  - id: "test_001"
+    descripcion: "Contrato post-2023, zona no tensionada, IRAV 2.5%"
+    entrada:
+      renta_actual: 1000.00
+      fecha_firma: "2024-03-01"
+      zona_tensionada: false
+      variacion_irav: 0.025
+    salida_esperada:
+      nueva_renta: 1025.00
+      variacion_aplicada: 0.025
+      limitado_por_zona_tensionada: false
+
+  - id: "test_002"
+    descripcion: "Contrato post-2023, zona tensionada, IRAV 4% — debe limitarse al 3%"
+    entrada:
+      renta_actual: 1000.00
+      fecha_firma: "2024-03-01"
+      zona_tensionada: true
+      variacion_irav: 0.04
+    salida_esperada:
+      nueva_renta: 1030.00
+      variacion_aplicada: 0.03
+      limitado_por_zona_tensionada: true
+
+  - id: "test_003"
+    descripcion: "Contrato pre-2024, zona no tensionada, IPC 3.2%"
+    entrada:
+      renta_actual: 900.00
+      fecha_firma: "2022-06-01"
+      zona_tensionada: false
+      variacion_ipc: 0.032
+    salida_esperada:
+      nueva_renta: 928.80
+      variacion_aplicada: 0.032
+      limitado_por_zona_tensionada: false

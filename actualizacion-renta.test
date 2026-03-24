@@ -1,0 +1,175 @@
+/**
+ * PACTA Contract Engine — Tests: Actualización de renta (LAU Art. 18)
+ *
+ * Cada test corresponde a un caso real documentado en:
+ * rules/lau/actualizacion-renta.yaml (sección casos_test)
+ *
+ * Ejecutar: npx vitest tests/lau/actualizacion-renta.test.ts
+ */
+
+import { describe, it, expect } from "vitest";
+import { evaluarContrato } from "../../engine/evaluator";
+import type { Contrato, ContextoEvaluacion } from "../../engine/types";
+
+// =============================================================================
+// Fixture base — contrato mínimo válido
+// =============================================================================
+
+const contratoBase: Contrato = {
+  id: "test-contrato-001",
+  estado: "VIGENTE",
+  arrendador: { tipo: "persona_fisica" },
+  fecha_firma: "2024-03-01",
+  fecha_inicio: "2024-03-01",
+  renta_actual: 1000.00,
+  inmueble: {
+    zona_tensionada: false,
+  },
+};
+
+// =============================================================================
+// Suite: Actualización de renta
+// =============================================================================
+
+describe("LAU Art. 18 — Actualización de renta", () => {
+
+  describe("test_001: Contrato post-2023, zona no tensionada, IRAV 2.5%", () => {
+    it("calcula la nueva renta correctamente", () => {
+      const contexto: ContextoEvaluacion = {
+        contrato: {
+          ...contratoBase,
+          fecha_firma: "2024-03-01",
+          fecha_inicio: "2024-03-01",
+          renta_actual: 1000.00,
+          inmueble: { zona_tensionada: false },
+        },
+        fecha_actual: "2025-03-01", // primer aniversario
+        indices: { irav_variacion_anual: 0.025 },
+      };
+
+      const resultado = evaluarContrato(contexto);
+      const actualizacion = resultado.resultados.find(
+        (r) => r.regla_id === "LAU_18_actualizacion_renta"
+      );
+
+      expect(actualizacion?.aplicable).toBe(true);
+      expect(actualizacion?.nueva_renta).toBe(1025.00);
+      expect(actualizacion?.variacion_aplicada).toBe(0.025);
+      expect(actualizacion?.indice_usado).toBe("IRAV");
+      expect(actualizacion?.limitado_por_zona_tensionada).toBe(false);
+    });
+  });
+
+  describe("test_002: Contrato post-2023, zona tensionada, IRAV 4% → límite al 3%", () => {
+    it("limita la actualización al 3% en zona tensionada", () => {
+      const contexto: ContextoEvaluacion = {
+        contrato: {
+          ...contratoBase,
+          fecha_firma: "2024-03-01",
+          fecha_inicio: "2024-03-01",
+          renta_actual: 1000.00,
+          inmueble: { zona_tensionada: true },
+        },
+        fecha_actual: "2025-03-01",
+        indices: { irav_variacion_anual: 0.04 },
+      };
+
+      const resultado = evaluarContrato(contexto);
+      const actualizacion = resultado.resultados.find(
+        (r) => r.regla_id === "LAU_18_actualizacion_renta"
+      );
+
+      expect(actualizacion?.aplicable).toBe(true);
+      expect(actualizacion?.nueva_renta).toBe(1030.00);
+      expect(actualizacion?.variacion_aplicada).toBe(0.03);
+      expect(actualizacion?.limitado_por_zona_tensionada).toBe(true);
+    });
+  });
+
+  describe("test_003: Contrato pre-2024, zona no tensionada, IPC 3.2%", () => {
+    it("usa IPC en lugar de IRAV para contratos anteriores a 2024", () => {
+      const contexto: ContextoEvaluacion = {
+        contrato: {
+          ...contratoBase,
+          fecha_firma: "2022-06-01",
+          fecha_inicio: "2022-06-01",
+          renta_actual: 900.00,
+          inmueble: { zona_tensionada: false },
+        },
+        fecha_actual: "2023-06-01",
+        indices: { ipc_variacion_anual: 0.032 },
+      };
+
+      const resultado = evaluarContrato(contexto);
+      const actualizacion = resultado.resultados.find(
+        (r) => r.regla_id === "LAU_18_actualizacion_renta"
+      );
+
+      expect(actualizacion?.aplicable).toBe(true);
+      expect(actualizacion?.nueva_renta).toBe(928.80);
+      expect(actualizacion?.indice_usado).toBe("IPC");
+      expect(actualizacion?.limitado_por_zona_tensionada).toBe(false);
+    });
+  });
+
+  describe("No aplica: fecha no es aniversario", () => {
+    it("no aplica la regla si hoy no es el aniversario", () => {
+      const contexto: ContextoEvaluacion = {
+        contrato: {
+          ...contratoBase,
+          fecha_inicio: "2024-03-01",
+        },
+        fecha_actual: "2025-05-15", // no es aniversario
+        indices: { irav_variacion_anual: 0.025 },
+      };
+
+      const resultado = evaluarContrato(contexto);
+      const actualizacion = resultado.resultados.find(
+        (r) => r.regla_id === "LAU_18_actualizacion_renta"
+      );
+
+      expect(actualizacion?.aplicable).toBe(false);
+    });
+  });
+
+  describe("Alerta preventiva: 30 días antes del aniversario", () => {
+    it("genera notificación al arrendador cuando faltan 30 días o menos", () => {
+      const contexto: ContextoEvaluacion = {
+        contrato: {
+          ...contratoBase,
+          fecha_inicio: "2024-03-01",
+        },
+        fecha_actual: "2025-02-15", // 14 días antes del aniversario
+        indices: { irav_variacion_anual: 0.025 },
+      };
+
+      const resultado = evaluarContrato(contexto);
+      const notificacionesArrendador = resultado.notificaciones_pendientes.filter(
+        (n) => n.destinatario === "arrendador" || n.destinatario === "ambos"
+      );
+
+      expect(notificacionesArrendador.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("Estado inválido: contrato finalizado", () => {
+    it("no aplica la regla si el contrato está finalizado", () => {
+      const contexto: ContextoEvaluacion = {
+        contrato: {
+          ...contratoBase,
+          estado: "FINALIZADO",
+          fecha_inicio: "2024-03-01",
+        },
+        fecha_actual: "2025-03-01",
+        indices: { irav_variacion_anual: 0.025 },
+      };
+
+      const resultado = evaluarContrato(contexto);
+      const actualizacion = resultado.resultados.find(
+        (r) => r.regla_id === "LAU_18_actualizacion_renta"
+      );
+
+      expect(actualizacion?.aplicable).toBe(false);
+    });
+  });
+});
