@@ -1,0 +1,65 @@
+{
+  "$schema": "https://rules.pacta.es/schema/v1/rule-override.json",
+  "id": "duracion-contrato",
+  "comunidad_autonoma": "catalunya",
+  "version": "0.1.0",
+  "estado": "borrador",
+  "fuente_legal": [
+    {
+      "norma": "Llei 11/2020, del 18 de setembre, de mesures urgents en matèria de contenció de rendes en els contractes d'arrendament d'habitatge",
+      "nota": "Parcialmente suspendida por el TC pero referencia para el contexto de zonas tensionadas en Catalunya",
+      "url": "https://portaljuridic.gencat.cat/eli/es-ct/l/2020/09/18/11"
+    },
+    {
+      "norma": "Resolucions de la Generalitat de Catalunya declarant àrees de mercat d'habitatge tens",
+      "descripcion": "271 municipios declarados zona tensionada en Catalunya. Actualización periódica.",
+      "url_api": "https://habitatge.gencat.cat/ca/detalls/Noticia/arees-mercat-habitatge-tens"
+    }
+  ],
+  "descripcion": "Override de Catalunya sobre la regla base LAU de duración del contrato. Catalunya tiene la mayor concentración de zonas tensionadas de España (271 municipios) y requisitos adicionales de información precontractual.",
+
+  "modificaciones": [
+    {
+      "campo": "fases.PRORROGA_EXTRAORDINARIA_ZONA_TENSIONADA.nota_adicional",
+      "valor": "En Catalunya, verificar zona tensionada contra el listado actualizado de la Agència de l'Habitatge de Catalunya (API oficial). El listado de 271 municipios tensionados se actualiza periódicamente mediante resolució de la Generalitat."
+    },
+    {
+      "campo": "fases.PRORROGA_OBLIGATORIA.acciones_disponibles.arrendador.NOTIFICAR_NO_RENOVAR.canal_recomendado",
+      "valor": "notificacion_electronica_certificada_o_burofax",
+      "nota": "En Catalunya se recomienda canal con acuse de recibo certificado dado el volumen de litigiosidad. No es requisito legal adicional respecto a la LAU base, pero sí práctica habitual en la jurisdicción."
+    }
+  ],
+
+  "requisitos_adicionales_catalunya": [
+    {
+      "id": "informacion-precontractual-zona-tensionada",
+      "fuente": "Art. 25 Ley 12/2023",
+      "descripcion": "En municipio tensionado de Catalunya, el arrendador debe proporcionar información precontractual sobre el índice de referencia de precios antes de firmar. PACTA debe verificar y registrar este cumplimiento en la fase INICIALIZACION.",
+      "aplica_en_fase": "INICIALIZACION",
+      "condicion": { "campo": "inmueble.zona_tensionada", "operador": "==", "valor": true }
+    },
+    {
+      "id": "deposito-fianza-agencia-habitatge",
+      "fuente": "Llei 13/1996 Catalunya + DA 3ª LAU",
+      "descripcion": "El arrendador tiene obligación de depositar la fianza en la Agència de l'Habitatge de Catalunya en el plazo de un mes desde la firma del contrato. PACTA debe generar alerta si no se registra el depósito.",
+      "plazo_deposito_dias": 30,
+      "aplica_en_fase": "PRORROGA_OBLIGATORIA",
+      "condicion": { "campo": "fianza.depositada_agencia", "operador": "==", "valor": false }
+    }
+  ],
+
+  "verificacion_zona_tensionada": {
+    "fuente_datos": "API Agència de l'Habitatge de Catalunya",
+    "url_consulta": "https://agenciahabitatge.gencat.cat/api/zones-tensionades/{municipio_codigo_ine}",
+    "nota": "La zona tensionada debe verificarse en tiempo real, no hardcodearse. El listado cambia. PACTA debe cachear con TTL de 24h máximo.",
+    "municipios_actualmente_declarados": 271
+  },
+
+  "metadatos": {
+    "creado_por": "PACTA Core Team",
+    "fecha_creacion": "2026-03-24",
+    "ultima_revision_legal": null,
+    "validado_por_abogado": false,
+    "notas_revision": "Pendiente validación por especialista en normativa catalana de arrendamientos (Josep Térmens o equivalente). El override de Catalunya es la capa de mayor riesgo legal por la densidad regulatoria."
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "$schema": "https://rules.pacta.es/schema/v1/rule.json",
+  "id": "duracion-contrato",
+  "version": "0.1.0",
+  "estado": "borrador",
+  "fuente_legal": [
+    {
+      "norma": "LAU 29/1994",
+      "articulos": ["9", "10", "11"],
+      "version_consolidada": "vigente desde 26/05/2023",
+      "url_boe": "https://www.boe.es/buscar/act.php?id=BOE-A-1994-26003"
+    },
+    {
+      "norma": "Ley 12/2023, de 24 de mayo, por el derecho a la vivienda",
+      "articulos": ["Disposición Final 1ª", "Disposición Transitoria 4ª"],
+      "url_boe": "https://www.boe.es/buscar/act.php?id=BOE-A-2023-12203"
+    }
+  ],
+  "advertencias_legales": [
+    {
+      "id": "retroactividad-art10-2-3",
+      "severidad": "alta",
+      "descripcion": "Existe debate jurídico no resuelto sobre si los arts. 10.2 y 10.3 LAU (prórroga extraordinaria por vulnerabilidad y por zona tensionada) aplican a contratos firmados antes del 26/05/2023. La interpretación mayoritaria los aplica; una interpretación minoritaria pero fundada los excluye por el principio de irretroactividad y la DT 4ª Ley 12/2023. Este motor aplica la interpretación mayoritaria pero marca los casos afectados para revisión.",
+      "pendiente_validacion_legal": true
+    }
+  ],
+  "descripcion": "Determina la fase contractual activa (duración mínima obligatoria, prórroga tácita, prórroga extraordinaria) y las acciones disponibles para cada parte en función de las fechas, las notificaciones realizadas y las características del contrato e inmueble.",
+
+  "inputs_requeridos": {
+    "contrato": {
+      "fecha_inicio": { "tipo": "fecha", "descripcion": "Fecha de inicio del contrato (o de puesta a disposición del inmueble si es posterior)" },
+      "duracion_pactada_meses": { "tipo": "entero", "descripcion": "Duración pactada en el contrato, en meses" },
+      "arrendador_persona_juridica": { "tipo": "booleano", "descripcion": "true si el arrendador es persona jurídica (sociedad, fondo, etc.)" },
+      "fecha_firma": { "tipo": "fecha", "descripcion": "Fecha de firma del contrato. Crítico para determinar régimen aplicable." },
+      "clausula_necesidad_ocupacion": { "tipo": "booleano", "descripcion": "true si el contrato incluye cláusula expresa de necesidad de ocupación por el arrendador (art. 9.3 LAU)" }
+    },
+    "inmueble": {
+      "zona_tensionada": { "tipo": "booleano", "descripcion": "true si el inmueble está en municipio declarado zona de mercado residencial tensionado" },
+      "municipio_codigo_ine": { "tipo": "texto", "descripcion": "Código INE del municipio. Usado para verificar zona tensionada en tiempo real contra API MIVAU." }
+    },
+    "notificaciones": {
+      "arrendador_notifico_no_renovar": { "tipo": "booleano", "descripcion": "true si el arrendador ha notificado fehacientemente su voluntad de no renovar" },
+      "arrendador_fecha_notificacion": { "tipo": "fecha", "nullable": true, "descripcion": "Fecha en que el arrendador realizó la notificación de no renovar" },
+      "arrendatario_notifico_no_renovar": { "tipo": "booleano", "descripcion": "true si el arrendatario ha notificado su voluntad de no renovar" },
+      "arrendatario_fecha_notificacion": { "tipo": "fecha", "nullable": true },
+      "arrendatario_solicito_prorroga_extraordinaria": { "tipo": "booleano", "descripcion": "true si el arrendatario ha solicitado formalmente prórroga extraordinaria" },
+      "arrendatario_acredita_vulnerabilidad": { "tipo": "booleano", "descripcion": "true si el arrendatario ha aportado certificado de servicios sociales de vulnerabilidad (art. 10.2 LAU)" },
+      "arrendador_es_gran_tenedor": { "tipo": "booleano", "descripcion": "true si el arrendador tiene 10 o más viviendas (5 en zonas tensionadas). Ley 12/2023 art. 3.k" }
+    },
+    "evaluacion": {
+      "fecha_actual": { "tipo": "fecha", "descripcion": "Fecha para la que se evalúa el estado del contrato" }
+    }
+  },
+
+  "constantes": {
+    "duracion_minima_persona_fisica_meses": 60,
+    "duracion_minima_persona_juridica_meses": 84,
+    "duracion_prorroga_tacita_max_meses": 36,
+    "duracion_prorroga_extraordinaria_vulnerabilidad_max_meses": 12,
+    "duracion_prorroga_extraordinaria_zona_tensionada_max_meses": 36,
+    "preaviso_arrendador_no_renovar_dias": 120,
+    "preaviso_arrendatario_no_renovar_en_prorroga_tacita_dias": 30,
+    "preaviso_arrendatario_no_renovar_fin_minimo_dias": 60,
+    "fecha_entrada_vigor_ley_12_2023": "2023-05-26"
+  },
+
+  "fases": [
+    {
+      "id": "PRORROGA_OBLIGATORIA",
+      "nombre": "Prórroga obligatoria (art. 9.1 LAU)",
+      "descripcion": "El contrato se prorroga anualmente de forma automática hasta alcanzar la duración mínima legal (5 años persona física / 7 años persona jurídica). El arrendador no puede oponerse salvo cláusula de necesidad de ocupación (art. 9.3).",
+      "condicion_entrada": {
+        "operador": "AND",
+        "condiciones": [
+          { "campo": "meses_transcurridos", "operador": "<", "valor_ref": "duracion_minima_aplicable_meses" },
+          { "campo": "contrato.duracion_pactada_meses", "operador": "<", "valor_ref": "duracion_minima_aplicable_meses" }
+        ]
+      },
+      "duracion_minima_aplicable": {
+        "regla": "if arrendador_persona_juridica then duracion_minima_persona_juridica_meses else duracion_minima_persona_fisica_meses"
+      },
+      "acciones_disponibles": {
+        "arrendatario": [
+          {
+            "id": "DESISTIR",
+            "descripcion": "Puede desistir del contrato con 30 días de preaviso, una vez transcurridos 6 meses desde el inicio (art. 11 LAU). Puede implicar indemnización si está pactada en contrato.",
+            "condicion": { "campo": "meses_transcurridos", "operador": ">=", "valor": 6 }
+          },
+          {
+            "id": "NOTIFICAR_NO_RENOVAR",
+            "descripcion": "Puede notificar su voluntad de no renovar al vencimiento del plazo mínimo con al menos 60 días de antelación.",
+            "condicion": {
+              "operador": "AND",
+              "condiciones": [
+                { "campo": "dias_para_fin_plazo_minimo", "operador": "<=", "valor": 60 },
+                { "campo": "dias_para_fin_plazo_minimo", "operador": ">", "valor": 0 }
+              ]
+            }
+          }
+        ],
+        "arrendador": [
+          {
+            "id": "RECUPERAR_VIVIENDA_USO_PROPIO",
+            "descripcion": "Puede recuperar la vivienda para uso propio o familiar si consta cláusula expresa en contrato (art. 9.3 LAU). Debe notificar con al menos 2 meses de antelación.",
+            "condicion": { "campo": "contrato.clausula_necesidad_ocupacion", "operador": "==", "valor": true }
+          },
+          {
+            "id": "NOTIFICAR_NO_RENOVAR",
+            "descripcion": "Puede notificar su voluntad de no renovar al vencimiento del plazo mínimo con al menos 120 días de antelación.",
+            "condicion": {
+              "operador": "AND",
+              "condiciones": [
+                { "campo": "dias_para_fin_plazo_minimo", "operador": "<=", "valor": 120 },
+                { "campo": "dias_para_fin_plazo_minimo", "operador": ">", "valor": 0 }
+              ]
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "PRORROGA_TACITA",
+      "nombre": "Prórroga tácita (art. 10.1 LAU)",
+      "descripcion": "Superada la duración mínima sin que ninguna parte haya notificado su voluntad de no renovar en plazo, el contrato se prorroga automáticamente por anualidades sucesivas hasta un máximo de 3 años más.",
+      "condicion_entrada": {
+        "operador": "AND",
+        "condiciones": [
+          { "campo": "meses_transcurridos", "operador": ">=", "valor_ref": "duracion_minima_aplicable_meses" },
+          { "campo": "notificaciones.arrendador_notifico_no_renovar", "operador": "==", "valor": false },
+          { "campo": "notificaciones.arrendatario_notifico_no_renovar", "operador": "==", "valor": false }
+        ]
+      },
+      "duracion_maxima_meses": 36,
+      "nota": "Si al final de cualquier anualidad de prórroga tácita el arrendatario notifica con 1 mes de antelación, el contrato finaliza. Si es el arrendador, necesita 4 meses.",
+      "acciones_disponibles": {
+        "arrendatario": [
+          {
+            "id": "NOTIFICAR_NO_RENOVAR_PRORROGA",
+            "descripcion": "Puede finalizar el contrato al vencimiento de cualquier anualidad notificando con 30 días de antelación.",
+            "condicion": {
+              "campo": "dias_para_proxima_anualidad",
+              "operador": "<=",
+              "valor": 30
+            }
+          },
+          {
+            "id": "SOLICITAR_PRORROGA_EXTRAORDINARIA",
+            "descripcion": "Al finalizar la prórroga tácita, puede solicitar prórroga extraordinaria si cumple requisitos (art. 10.2 / 10.3 LAU).",
+            "condicion": {
+              "campo": "dias_para_fin_prorroga_tacita",
+              "operador": "<=",
+              "valor": 60
+            }
+          }
+        ],
+        "arrendador": [
+          {
+            "id": "NOTIFICAR_NO_RENOVAR_PRORROGA",
+            "descripcion": "Puede finalizar el contrato al vencimiento de cualquier anualidad notificando con al menos 4 meses de antelación.",
+            "condicion": {
+              "campo": "dias_para_proxima_anualidad",
+              "operador": "<=",
+              "valor": 120
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "id": "PRORROGA_EXTRAORDINARIA_VULNERABILIDAD",
+      "nombre": "Prórroga extraordinaria por vulnerabilidad (art. 10.2 LAU)",
+      "descripcion": "El arrendatario en situación de vulnerabilidad acreditada puede solicitar una prórroga de hasta 1 año al finalizar la prórroga obligatoria o tácita. Solo es obligatoria para el arrendador si este es gran tenedor.",
+      "advertencia_legal": "retroactividad-art10-2-3",
+      "condicion_entrada": {
+        "operador": "AND",
+        "condiciones": [
+          {
+            "descripcion": "Solo aplica con certeza a contratos firmados desde 26/05/2023. Para contratos anteriores, aplicar con cautela.",
+            "campo": "contrato_posterior_ley_12_2023",
+            "operador": "==",
+            "valor": true,
+            "advertencia_si_falso": "retroactividad-art10-2-3"
+          },
+          { "campo": "notificaciones.arrendatario_solicito_prorroga_extraordinaria", "operador": "==", "valor": true },
+          { "campo": "notificaciones.arrendatario_acredita_vulnerabilidad", "operador": "==", "valor": true }
+        ]
+      },
+      "duracion_maxima_meses": 12,
+      "obligatoria_para_arrendador": {
+        "regla": "if arrendador_es_gran_tenedor then true else false",
+        "nota": "Gran tenedor: 10+ viviendas en general, 5+ en zona tensionada (Ley 12/2023, art. 3.k)"
+      }
+    },
+
+    {
+      "id": "PRORROGA_EXTRAORDINARIA_ZONA_TENSIONADA",
+      "nombre": "Prórroga extraordinaria en zona tensionada (art. 10.3 LAU)",
+      "descripcion": "En zonas de mercado residencial tensionado, el arrendatario puede solicitar una prórroga de hasta 3 años anuales al finalizar la prórroga obligatoria o tácita. El arrendador está obligado a aceptarla salvo excepciones tasadas.",
+      "advertencia_legal": "retroactividad-art10-2-3",
+      "condicion_entrada": {
+        "operador": "AND",
+        "condiciones": [
+          {
+            "campo": "contrato_posterior_ley_12_2023",
+            "operador": "==",
+            "valor": true,
+            "advertencia_si_falso": "retroactividad-art10-2-3"
+          },
+          { "campo": "inmueble.zona_tensionada", "operador": "==", "valor": true },
+          { "campo": "notificaciones.arrendatario_solicito_prorroga_extraordinaria", "operador": "==", "valor": true }
+        ]
+      },
+      "duracion_maxima_meses": 36,
+      "periodicidad": "anual",
+      "obligatoria_para_arrendador": true,
+      "excepciones_arrendador": [
+        {
+          "id": "acuerdo-entre-partes",
+          "descripcion": "Las partes han fijado otros términos o condiciones por acuerdo"
+        },
+        {
+          "id": "nuevo-contrato-con-limitaciones",
+          "descripcion": "Se ha suscrito un nuevo contrato con las limitaciones de renta del art. 17.6 y 17.7 LAU"
+        },
+        {
+          "id": "necesidad-uso-propio",
+          "descripcion": "El arrendador ha comunicado necesidad de ocupar la vivienda para uso propio o familiar (art. 9.3 LAU) en los plazos establecidos"
+        }
+      ]
+    },
+
+    {
+      "id": "FINALIZADO",
+      "nombre": "Contrato finalizado",
+      "descripcion": "El contrato ha llegado a su término. No hay obligaciones arrendaticias activas salvo las derivadas de la liquidación (devolución de fianza, estado del inmueble).",
+      "condicion_entrada": {
+        "operador": "OR",
+        "condiciones": [
+          {
+            "descripcion": "Fin del plazo mínimo con notificación en plazo por cualquiera de las partes",
+            "operador": "AND",
+            "condiciones": [
+              { "campo": "meses_transcurridos", "operador": ">=", "valor_ref": "duracion_minima_aplicable_meses" },
+              {
+                "operador": "OR",
+                "condiciones": [
+                  { "campo": "notificaciones.arrendador_notifico_no_renovar", "operador": "==", "valor": true },
+                  { "campo": "notificaciones.arrendatario_notifico_no_renovar", "operador": "==", "valor": true }
+                ]
+              }
+            ]
+          },
+          {
+            "descripcion": "Fin de la prórroga tácita (3 años) sin nueva prórroga",
+            "campo": "meses_en_prorroga_tacita",
+            "operador": ">=",
+            "valor": 36
+          }
+        ]
+      }
+    }
+  ],
+
+  "campos_calculados": {
+    "contrato_posterior_ley_12_2023": {
+      "formula": "contrato.fecha_firma >= '2023-05-26'",
+      "descripcion": "Indica si el contrato está sujeto a los nuevos arts. 10.2 y 10.3 LAU"
+    },
+    "duracion_minima_aplicable_meses": {
+      "formula": "if contrato.arrendador_persona_juridica then 84 else 60"
+    },
+    "meses_transcurridos": {
+      "formula": "meses_entre(contrato.fecha_inicio, evaluacion.fecha_actual)"
+    },
+    "dias_para_fin_plazo_minimo": {
+      "formula": "dias_entre(evaluacion.fecha_actual, contrato.fecha_inicio + duracion_minima_aplicable_meses)"
+    },
+    "fase_actual": {
+      "descripcion": "Evaluada por el motor recorriendo las fases en orden. Primera condición de entrada satisfecha = fase activa."
+    }
+  },
+
+  "metadatos": {
+    "creado_por": "PACTA Core Team",
+    "fecha_creacion": "2026-03-24",
+    "ultima_revision_legal": null,
+    "validado_por_abogado": false,
+    "notas_revision": "Pendiente de validación por asesor LAU especializado antes de uso en producción. Ver advertencia retroactividad-art10-2-3."
+  }
+}
